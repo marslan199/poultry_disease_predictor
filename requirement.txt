@@ -1,5 +1,5 @@
 streamlit
-torch==2.5.0+cpu
-torchvision==0.18.1+cpu
 pillow
 -f https://download.pytorch.org/whl/cpu/torch_stable.html
+torch==2.5.0+cpu
+torchvision==0.18.1+cpu
