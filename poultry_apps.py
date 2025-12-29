@@ -1,99 +1,50 @@
-# poultry_app.py
 import streamlit as st
 from PIL import Image
 import torch
-from torchvision import transforms, models
-import torch.nn as nn
-import os
-import zipfile
+import torchvision.transforms as transforms
+import requests
+import io
 
-# -----------------------------
-# Device
-# -----------------------------
-device = "cuda" if torch.cuda.is_available() else "cpu"
+st.set_page_config(page_title="Poultry Disease Predictor", layout="centered")
 
-# -----------------------------
-# Classes
-# -----------------------------
-class_names = ['COCCI', 'CRD', 'HEALTHY', 'HEALTHY_EYE', 'NEW_CASTLE', 'SALMONELA']
-num_classes = len(class_names)
+st.title("🐔 Poultry Disease Predictor")
 
-# -----------------------------
-# Model paths
-# -----------------------------
-zip_path = "diseases_predictor_weights.zip"
-weights_path = "resnet18_bird_disease_weights.pt"
-
-# -----------------------------
-# Load Model
-# -----------------------------
+# ----------- Model download -----------
 @st.cache_resource
 def load_model():
-    # Unzip if weights file doesn't exist
-    if not os.path.exists(weights_path):
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(".")
+    url = "https://drive.google.com/file/d/1VK1NuYajH4o35d-8NiiSh78Bx8F7-G8y/view?usp=drive_link"  # replace with Google Drive or Hugging Face link
+    response = requests.get(url)
+    model_file = io.BytesIO(response.content)
     
-    # Initialize architecture
-    model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
-    
-    # Load weights-only checkpoint
-    model.load_state_dict(torch.load(weights_path, map_location=device))
-    model.to(device)
+    model = torch.load(model_file, map_location="cpu")
     model.eval()
     return model
 
 model = load_model()
 
-# -----------------------------
-# Image Transformation
-# -----------------------------
-def transform_image(image):
+# ----------- Upload image -----------
+uploaded_file = st.file_uploader("Upload a chicken image", type=["jpg", "jpeg", "png"])
+if uploaded_file:
+    img = Image.open(uploaded_file).convert("RGB")
+    st.image(img, caption="Uploaded Image", use_column_width=True)
+
+    # ----------- Preprocess -----------
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                             [0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
     ])
-    return transform(image).unsqueeze(0)
+    input_tensor = transform(img).unsqueeze(0)
 
-# -----------------------------
-# Streamlit Layout
-# -----------------------------
-st.set_page_config(
-    page_title="Poultry Disease Classifier",
-    page_icon="🐔",
-    layout="centered"
-)
+    # ----------- Predict -----------
+    with torch.no_grad():
+        output = model(input_tensor)
+        pred_class = output.argmax(1).item()
 
-st.title("🐔 Poultry Disease Classifier")
-st.markdown("Upload an image of a bird or its eye to detect possible diseases.")
+    # ----------- Display result -----------
+    classes = ['COCCI', 'CRD', 'HEALTHY', 'HEALTHY_EYE', 'NEW_CASTLE', 'SALMONELA']
+    st.success(f"Predicted Disease: {classes[pred_class]}")
 
-# Upload section
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
-
-    if st.button("Predict Disease"):
-        with st.spinner("Analyzing..."):
-            input_tensor = transform_image(image).to(device)
-            with torch.inference_mode():
-                outputs = model(input_tensor)
-                probs = torch.softmax(outputs, dim=1)
-                conf, pred_idx = torch.max(probs, 1)
-                disease_name = class_names[pred_idx.item()]
-                confidence = conf.item() * 100
-
-        st.success(f"**Prediction:** {disease_name}")
-        st.info(f"**Confidence:** {confidence:.2f}%")
-        
-        # Back button
-        if st.button("🔙 Back"):
-            st.experimental_rerun()
-
-# Optional footer
-st.markdown("---")
-st.markdown("Built with ❤️ using **PyTorch** and **Streamlit**")
+    # Back button
+    if st.button("Back"):
+        st.experimental_rerun()
